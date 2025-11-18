@@ -4,24 +4,69 @@ import * as THREE from 'three';
 const InteractiveBall3D = () => {
   const containerRef = useRef(null);
   const [isRotating, setIsRotating] = useState(true);
+  const [_minusClickCount, setMinusClickCount] = useState(0);
 
   // Texturas memoizadas para evitar regeneración y parpadeos
   const textures = useMemo(() => {
-    // Cuero gris sutil
+    // Textura tipo piel de naranja corrugada
     const canvasLeather = document.createElement('canvas');
     canvasLeather.width = 1024; canvasLeather.height = 1024;
     const ctxL = canvasLeather.getContext('2d');
+    
+    // Fondo base
     ctxL.fillStyle = '#6d6d6d';
     ctxL.fillRect(0, 0, 1024, 1024);
-    for (let i = 0; i < 6000; i++) {
+    
+    // Crear patrón tipo piel de naranja con celdas hexagonales
+    const cellSize = 18;
+    for (let y = 0; y < 1024; y += cellSize) {
+      for (let x = 0; x < 1024; x += cellSize) {
+        const offsetX = (y / cellSize) % 2 === 0 ? 0 : cellSize / 2;
+        const centerX = x + offsetX + cellSize / 2;
+        const centerY = y + cellSize / 2;
+        
+        // Borde oscuro de la celda (valle)
+        const gradient = ctxL.createRadialGradient(
+          centerX, centerY, 0,
+          centerX, centerY, cellSize / 2
+        );
+        gradient.addColorStop(0, 'rgba(120, 120, 120, 0.8)');
+        gradient.addColorStop(0.6, 'rgba(80, 80, 80, 0.6)');
+        gradient.addColorStop(1, 'rgba(40, 40, 40, 0.9)');
+        
+        ctxL.fillStyle = gradient;
+        ctxL.beginPath();
+        ctxL.arc(centerX, centerY, cellSize / 2.2, 0, Math.PI * 2);
+        ctxL.fill();
+        
+        // Centro más claro (pico)
+        ctxL.fillStyle = 'rgba(150, 150, 150, 0.5)';
+        ctxL.beginPath();
+        ctxL.arc(
+          centerX + (Math.random() - 0.5) * 2,
+          centerY + (Math.random() - 0.5) * 2,
+          cellSize / 6,
+          0,
+          Math.PI * 2
+        );
+        ctxL.fill();
+      }
+    }
+    
+    // Agregar ruido fino para textura adicional
+    for (let i = 0; i < 12000; i++) {
       const x = Math.random() * 1024;
       const y = Math.random() * 1024;
-      const size = Math.random() * 2;
-      const opacity = Math.random() * 0.25;
-      ctxL.fillStyle = `rgba(120,120,120,${opacity})`;
+      const size = 0.5 + Math.random() * 1.5;
+      const opacity = Math.random() * 0.2;
+      const shade = 50 + Math.random() * 80;
+      ctxL.fillStyle = `rgba(${shade},${shade},${shade},${opacity})`;
       ctxL.fillRect(x, y, size, size);
     }
+    
     const leather = new THREE.CanvasTexture(canvasLeather);
+    leather.wrapS = leather.wrapT = THREE.RepeatWrapping;
+    leather.repeat.set(3, 3);
 
     // Patrón de puntos turquesa sutil
     const canvasTurq = document.createElement('canvas');
@@ -72,6 +117,10 @@ const InteractiveBall3D = () => {
     // Grupo principal para la pelota
     const ballGroup = new THREE.Group();
     scene.add(ballGroup);
+
+    // Referencias para controlar iluminación
+    const sphereRef = { current: null };
+    const lightColorRef = { current: null };
 
     // Interactividad de botones: raycaster y estado de animaciones
     const raycaster = new THREE.Raycaster();
@@ -146,15 +195,18 @@ const InteractiveBall3D = () => {
   const leatherTexture = textures.leather;
     const sphereMaterial = new THREE.MeshStandardMaterial({
       map: leatherTexture,
-      color: 0x6d6d6d,
-      roughness: 0.85,
-      metalness: 0.1,
+      color: 0x707070,
+      roughness: 0.92,
+      metalness: 0.05,
       bumpMap: leatherTexture,
-      bumpScale: 0.005
+      bumpScale: 0.035,
+      normalMap: leatherTexture,
+      normalScale: new THREE.Vector2(1.2, 1.2)
     });
     const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
     sphere.castShadow = true;
     sphere.receiveShadow = true;
+    sphereRef.current = sphere;
     ballGroup.add(sphere);
 
     // (textura turquesa ahora proviene de useMemo)
@@ -167,10 +219,10 @@ const InteractiveBall3D = () => {
     const basePatchMaterial = new THREE.MeshStandardMaterial({
       map: turquoiseTexture,
       color: 0x2eb8b8,
-      roughness: 0.7,
+      roughness: 0.75,
       metalness: 0.08,
       bumpMap: turquoiseTexture,
-      bumpScale: 0.005,
+      bumpScale: 0.012,
       side: THREE.FrontSide,
       polygonOffset: true,
       polygonOffsetFactor: -1,
@@ -371,6 +423,9 @@ const InteractiveBall3D = () => {
       const normal = position.clone().normalize();
       buttonGroup.lookAt(normal.multiplyScalar(2));
       
+      // Guardar símbolo para fácil identificación
+      buttonGroup.userData.symbol = symbol;
+      
       return buttonGroup;
     };
 
@@ -431,10 +486,10 @@ const InteractiveBall3D = () => {
     ballGroup.add(createLogo(logoPos));
 
     // Iluminación mejorada para resaltar el relieve
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.45);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
     scene.add(ambientLight);
 
-    const mainLight = new THREE.DirectionalLight(0xffffff, 1.3);
+    const mainLight = new THREE.DirectionalLight(0xffffff, 1.0);
     mainLight.position.set(5, 5, 5);
     mainLight.castShadow = true;
     mainLight.shadow.mapSize.width = 2048;
@@ -443,22 +498,166 @@ const InteractiveBall3D = () => {
     mainLight.shadow.camera.far = 15;
     scene.add(mainLight);
 
-    const fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
+    const fillLight = new THREE.DirectionalLight(0xffffff, 0.5);
     fillLight.position.set(-3, 2, -3);
     scene.add(fillLight);
 
-    const rimLight = new THREE.DirectionalLight(0xffd4a3, 0.6);
+    const rimLight = new THREE.DirectionalLight(0xffd4a3, 0.4);
     rimLight.position.set(-2, -3, -5);
     scene.add(rimLight);
 
-    const topLight = new THREE.PointLight(0xffffff, 0.65);
+    const topLight = new THREE.PointLight(0xffffff, 0.5);
     topLight.position.set(0, 4, 2);
     scene.add(topLight);
+
+    // Luz de color para iluminación de la pelota (inicialmente apagada)
+    const colorLight = new THREE.PointLight(0xffffff, 0);
+    colorLight.position.set(0, 0, 0);
+    lightColorRef.current = colorLight;
+    scene.add(colorLight);
 
   // Variables para interacción
   let isDragging = false;
   let previousMousePosition = { x: 0, y: 0 };
   let pressedButton = null;
+  let pressedButtonSymbol = null;
+  let buttonPressStartTime = null;
+  let longPressTimeout = null;
+
+  // Variable para controlar intervalos de intermitencia
+  let blinkInterval = null;
+  let vibrationInterval = null;
+  let isVibrating = false;
+
+  // Función para detener la intermitencia
+  const stopBlinking = () => {
+    if (blinkInterval) {
+      clearInterval(blinkInterval);
+      blinkInterval = null;
+      // Apagar las luces
+      if (lightColorRef.current && sphereRef.current) {
+        lightColorRef.current.intensity = 0;
+        sphereRef.current.material.emissive.setHex(0x000000);
+        sphereRef.current.material.emissiveIntensity = 0;
+      }
+      // Reiniciar el contador a 0 para que el siguiente sea rojo
+      setMinusClickCount(0);
+      console.log('Intermitencia detenida - contador reiniciado');
+    }
+  };
+
+  // Función para simular vibración de la pelota (continua)
+  const startVibration = () => {
+    if (isVibrating) return; // Ya está vibrando
+    
+    isVibrating = true;
+    console.log('Iniciando vibración continua...');
+    
+    // Intentar vibración real del dispositivo si está disponible (patrón continuo)
+    if (navigator.vibrate) {
+      // Vibración continua mientras dure
+      navigator.vibrate([100, 50, 100, 50, 100, 50, 100, 50, 100, 50, 100, 50, 100]);
+    }
+    
+    // Guardar posición original
+    const originalPosition = ballGroup.position.clone();
+    const originalRotation = { x: ballGroup.rotation.x, y: ballGroup.rotation.y, z: ballGroup.rotation.z };
+    
+    vibrationInterval = setInterval(() => {
+      // Movimiento aleatorio rápido continuo
+      const intensity = 0.02;
+      ballGroup.position.x = originalPosition.x + (Math.random() - 0.5) * intensity;
+      ballGroup.position.y = originalPosition.y + (Math.random() - 0.5) * intensity;
+      ballGroup.position.z = originalPosition.z + (Math.random() - 0.5) * intensity;
+      
+      // Pequeña rotación aleatoria
+      const rotIntensity = 0.01;
+      ballGroup.rotation.x = originalRotation.x + (Math.random() - 0.5) * rotIntensity;
+      ballGroup.rotation.y = originalRotation.y + (Math.random() - 0.5) * rotIntensity;
+      ballGroup.rotation.z = originalRotation.z + (Math.random() - 0.5) * rotIntensity;
+    }, 20); // Actualizar cada 20ms
+  };
+  
+  // Función para detener la vibración
+  const stopVibration = () => {
+    if (!isVibrating) return;
+    
+    isVibrating = false;
+    console.log('Deteniendo vibración...');
+    
+    // Detener vibración del dispositivo
+    if (navigator.vibrate) {
+      navigator.vibrate(0);
+    }
+    
+    // Limpiar intervalo
+    if (vibrationInterval) {
+      clearInterval(vibrationInterval);
+      vibrationInterval = null;
+    }
+    
+    // Restaurar posición y rotación originales suavemente
+    // La rotación actual se mantiene para no interrumpir la interacción
+    ballGroup.position.set(0, 0, 0);
+    
+    console.log('Vibración detenida');
+  };
+
+  // Función para iluminar la pelota según contador (intermitente infinito)
+  const illuminateBall = (count) => {
+    const colors = [
+      { color: 0xff0000, name: 'rojo' },    // 1 vez: rojo
+      { color: 0x00ff00, name: 'verde' },   // 2 veces: verde
+      { color: 0x0000ff, name: 'azul' }     // 3 veces: azul
+    ];
+    const index = (count - 1) % 3;
+    const selected = colors[index];
+    
+    console.log(`Iluminando pelota: ${selected.name} (click #${count})`);
+    
+    if (lightColorRef.current && sphereRef.current) {
+      // Limpiar intervalo anterior si existe
+      if (blinkInterval) {
+        clearInterval(blinkInterval);
+        blinkInterval = null;
+      }
+      
+      // Configurar luz de color
+      lightColorRef.current.color.setHex(selected.color);
+      
+      // Estado de intermitencia
+      let isOn = true;
+      
+      // Encender inicialmente
+      lightColorRef.current.intensity = 3.5;
+      sphereRef.current.material.emissive.setHex(selected.color);
+      sphereRef.current.material.emissiveIntensity = 0.6;
+      
+      // Intermitencia cada 500ms (sin límite)
+      blinkInterval = setInterval(() => {
+        isOn = !isOn;
+        
+        if (isOn) {
+          // Encender
+          lightColorRef.current.intensity = 3.5;
+          sphereRef.current.material.emissive.setHex(selected.color);
+          sphereRef.current.material.emissiveIntensity = 0.6;
+        } else {
+          // Apagar
+          lightColorRef.current.intensity = 0;
+          sphereRef.current.material.emissive.setHex(0x000000);
+          sphereRef.current.material.emissiveIntensity = 0;
+        }
+      }, 500);
+      
+      console.log('Intermitencia infinita iniciada:', selected.name);
+    } else {
+      console.error('Referencias no disponibles:', {
+        light: !!lightColorRef.current,
+        sphere: !!sphereRef.current
+      });
+    }
+  };
 
     const onMouseDown = (e) => {
       setPointerFromEvent(e);
@@ -466,6 +665,23 @@ const InteractiveBall3D = () => {
       const hit = raycaster.intersectObjects(interactiveTargets, true)[0];
       if (hit) {
         pressedButton = hit.object.userData.buttonGroup || hit.object.parent;
+        // Identificar símbolo del botón directamente
+        pressedButtonSymbol = pressedButton.userData.symbol;
+        
+        // Si es el botón '+', iniciar vibración continua
+        if (pressedButtonSymbol === '+') {
+          startVibration();
+        }
+        
+        // Si es el botón 'o', iniciar temporizador para detener intermitencia
+        if (pressedButtonSymbol === 'o') {
+          buttonPressStartTime = Date.now();
+          longPressTimeout = setTimeout(() => {
+            stopBlinking();
+            console.log('Mantuviste presionado 2 segundos - intermitencia detenida');
+          }, 2000);
+        }
+        
         pressButton(pressedButton, true);
         // No iniciar drag si presionó un botón
         renderer.domElement.style.cursor = 'pointer';
@@ -503,7 +719,40 @@ const InteractiveBall3D = () => {
     const onMouseUp = () => {
       if (pressedButton) {
         pressButton(pressedButton, false);
+        
+        // Cancelar temporizador de presión larga si existe
+        if (longPressTimeout) {
+          clearTimeout(longPressTimeout);
+          longPressTimeout = null;
+        }
+        
+        // Si fue el botón 'o' y se soltó antes de 2 segundos, ejecutar acción normal
+        if (pressedButtonSymbol === 'o' && buttonPressStartTime) {
+          const pressDuration = Date.now() - buttonPressStartTime;
+          if (pressDuration < 2000) {
+            // Acción normal del botón 'o' (puedes personalizar esto)
+            console.log('Clic corto en botón o');
+            // Aquí puedes agregar la acción para encender la pelota
+          }
+          buttonPressStartTime = null;
+        }
+        
+        // Si fue el botón "+", detener vibración
+        if (pressedButtonSymbol === '+') {
+          stopVibration();
+        }
+        
+        // Si fue el botón "-", incrementar contador e iluminar
+        if (pressedButtonSymbol === '-') {
+          setMinusClickCount(prev => {
+            const newCount = prev + 1;
+            illuminateBall(newCount);
+            return newCount;
+          });
+        }
+        
         pressedButton = null;
+        pressedButtonSymbol = null;
         // actualizar cursor según hover actual
         const hoverHit = raycaster.intersectObjects(interactiveTargets, true)[0];
         renderer.domElement.style.cursor = hoverHit ? 'pointer' : 'grab';
@@ -528,6 +777,23 @@ const InteractiveBall3D = () => {
         const hit = raycaster.intersectObjects(interactiveTargets, true)[0];
         if (hit) {
           pressedButton = hit.object.userData.buttonGroup || hit.object.parent;
+          // Identificar símbolo del botón directamente
+          pressedButtonSymbol = pressedButton.userData.symbol;
+          
+          // Si es el botón '+', iniciar vibración continua
+          if (pressedButtonSymbol === '+') {
+            startVibration();
+          }
+          
+          // Si es el botón 'o', iniciar temporizador para detener intermitencia
+          if (pressedButtonSymbol === 'o') {
+            buttonPressStartTime = Date.now();
+            longPressTimeout = setTimeout(() => {
+              stopBlinking();
+              console.log('Mantuviste presionado 2 segundos - intermitencia detenida');
+            }, 2000);
+          }
+          
           pressButton(pressedButton, true);
           return;
         }
@@ -554,7 +820,39 @@ const InteractiveBall3D = () => {
     const onTouchEnd = () => {
       if (pressedButton) {
         pressButton(pressedButton, false);
+        
+        // Cancelar temporizador de presión larga si existe
+        if (longPressTimeout) {
+          clearTimeout(longPressTimeout);
+          longPressTimeout = null;
+        }
+        
+        // Si fue el botón 'o' y se soltó antes de 2 segundos, ejecutar acción normal
+        if (pressedButtonSymbol === 'o' && buttonPressStartTime) {
+          const pressDuration = Date.now() - buttonPressStartTime;
+          if (pressDuration < 500) {
+            // Acción normal del botón 'o'
+            console.log('Clic corto en botón o');
+          }
+          buttonPressStartTime = null;
+        }
+        
+        // Si fue el botón "+", detener vibración
+        if (pressedButtonSymbol === '+') {
+          stopVibration();
+        }
+        
+        // Si fue el botón "-", incrementar contador e iluminar
+        if (pressedButtonSymbol === '-') {
+          setMinusClickCount(prev => {
+            const newCount = prev + 1;
+            illuminateBall(newCount);
+            return newCount;
+          });
+        }
+        
         pressedButton = null;
+        pressedButtonSymbol = null;
         return;
       }
       isDragging = false;
@@ -594,6 +892,21 @@ const InteractiveBall3D = () => {
 
     // Cleanup
     return () => {
+      // Limpiar intervalo de intermitencia si existe
+      if (blinkInterval) {
+        clearInterval(blinkInterval);
+        blinkInterval = null;
+      }
+      // Limpiar intervalo de vibración si existe
+      if (vibrationInterval) {
+        clearInterval(vibrationInterval);
+        vibrationInterval = null;
+      }
+      // Limpiar timeout de presión larga si existe
+      if (longPressTimeout) {
+        clearTimeout(longPressTimeout);
+        longPressTimeout = null;
+      }
       window.removeEventListener('resize', handleResize);
       renderer.domElement.removeEventListener('mousedown', onMouseDown);
       renderer.domElement.removeEventListener('mousemove', onMouseMove);
